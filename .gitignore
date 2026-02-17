@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+abc_tool/
+abc_*.blif
+abc_*.aig
+abc.history
+abc_tmp_cmd.txt
+*.log
+.claude/
