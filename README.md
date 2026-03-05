@@ -1,48 +1,66 @@
 # FP4 Multiplier Optimization
 
-## Problem Summary
-Design a minimum-gate-count circuit for multiplying two 4-bit FP4 (MxFP4) numbers, outputting `(a * b * 4)` as a 9-bit two's complement integer.
+Minimum-gate Boolean circuit for multiplying two MxFP4 numbers.
+See [`take-home-spec.pdf`](take-home-spec.pdf) for the original problem statement.
 
-### Constraints
-- Gates: XOR, AND, OR (2-input), NOT (1-input) - each costs 1 gate
-- Free: constants (0, 1), input remapping (same mapping for both inputs)
-- Cannot remap output
+## The Problem
 
-## Current Best: 54 Gates
+Design a circuit using the fewest 2-input AND, OR, XOR and 1-input NOT gates that computes `(a * b * 4)` for two 4-bit MxFP4 inputs, producing a 9-bit two's complement output.
+
+**MxFP4** encodes 16 values: `{0, ±0.5, ±1, ±1.5, ±2, ±3, ±4, ±6}` in 4 bits (sign-magnitude, with two representations of zero). The circuit must be correct for all 256 input combinations. Input remapping (same bijection on both inputs) is free; output remapping is not allowed.
+
+### Why This Is Hard
+
+This is the **Minimum Circuit Size Problem (MCSP)**: given a truth table, find the smallest Boolean circuit that computes it. MCSP is known to be NP-hard, and no polynomial-time algorithm exists.
+
+- **Search space**: a circuit with *n* gates over 8 inputs has roughly `(4 × n²)^n` possible topologies -- for n=50 that's ~10^170.
+- **Exact synthesis** (SAT/SMT) can prove optimality for small circuits, but becomes intractable beyond ~15-20 gates. Our 9-output, 8-input function is far beyond this horizon.
+- **Standard integer multipliers**: a 4×4 unsigned integer multiplier typically needs ~100 gates. FP4's irregular encoding (non-uniform spacing, two zeros, sign-magnitude) makes classical multiplier architectures a poor fit.
+- **Lower bounds**: SAT-proven per-bit independent synthesis requires at least **67 gates** (sum over all 9 outputs synthesized separately). The true multi-output optimum is unknown -- the gap between 14 (trivial partition bound) and 54 (our best) is open.
+
+### What "Good" Looks Like
+
+| Range | Assessment |
+|-------|------------|
+| >100 gates | Naive / textbook approach |
+| 70-100 | Reasonable logic synthesis (Espresso, ABC) |
+| 50-70 | Strong optimization, exploits FP4 structure |
+| 40-50 | Likely near-optimal; requires deep inter-output sharing |
+| <40 | Would require a breakthrough or proof of impossibility |
+
+## Result: 54 Gates
 
 **20 AND + 8 OR + 26 XOR + 0 NOT = 54 gates** -- verified 256/256 correct.
 
-Found by SA-diverse run 703 from a 56-gate seed at step 16,730,506 (T=30, cooling=0.9999970).
-Also found independently by run 700 at step 269,354,924 with a different gate topology.
+Found by simulated annealing (run 703, step 16.7M, T=30) from a 56-gate seed.
+Independently confirmed by run 700 (step 269M, different topology).
 
-See `optimized_54_gates.py` for the circuit implementation.
+This is **13 gates below the per-bit lower bound** of 67, proving that inter-output gate sharing saves at least 13 gates in this circuit.
 
-### Optimization History
+See [`optimized_54_gates.py`](optimized_54_gates.py) for the implementation.
+
+### Optimization Trace
 ```
 205 -> 87 -> 83 -> 77 -> 73 -> 71 -> 69 -> 67 -> 66 -> 65 -> 64 -> 63 -> 62 -> 61 -> 60 -> 59 -> 58 -> 57 -> 56 -> 54
 ```
 
-Key techniques used in cascade:
-- **Hand-crafted structural decomposition** (205 -> 87)
-- **CGP (Cartesian Genetic Programming)** (87 -> 83)
-- **Simulated annealing on DAG** (83 -> 77 -> ... -> 57)
-- **SAT peephole optimization** (local k-gate window replacement via SAT solver)
-- **SA + peephole alternation** (breaks through local minima)
-- **Structural diversity** (GA population for diverse seeds)
+Techniques used in cascade:
+- **Structural decomposition** (205 -> 87): hand-built sign-magnitude architecture
+- **CGP** (87 -> 83): Cartesian Genetic Programming with neutral drift
+- **Simulated annealing on circuit DAG** (83 -> 57): 7 mutation operators, 256-bit vectorized evaluation
+- **SAT peephole optimization**: exact k-gate window replacement via PySAT (CaDiCaL)
+- **SA + peephole alternation**: SA for global restructuring, peephole for local exactness
+- **GA diversity seeding**: population of structurally diverse circuits to escape local minima
 
-### Circuit Structure (54 gates)
-- 7 gates shared by all 9 outputs (core logic)
-- Only 8 gates dedicated to a single output
+See [`SOLVE_LOG.md`](SOLVE_LOG.md) for the full narrative of the LLM-assisted solve process.
+
+### Circuit Structure
+- 7 gates shared by all 9 outputs
+- 8 gates dedicated to a single output
 - Middle outputs (o5-o2) share 80-94% of their gates
-- Sign bit (o8) needs only 9 gates
-- LSB (o0) depends on only 6 of 8 inputs
+- Sign bit (o8): 9 gates; LSB (o0): 21 gates, depends on only 6 of 8 inputs
 
-See `output_cone_analysis.py` for full sharing/dependency analysis.
-
-### Lower Bounds
-- Per-bit independent lower bound: 67 gates (SAT-proven)
-- Current circuit beats this by 13 gates (proves inter-output sharing saves 13+ gates)
-- True multi-output lower bound: unknown (SAT intractable for full 9-output problem)
+See [`output_cone_analysis.py`](output_cone_analysis.py) for full analysis.
 
 ## Files
 
@@ -50,7 +68,9 @@ See `output_cone_analysis.py` for full sharing/dependency analysis.
 |------|-------------|
 | `optimized_54_gates.py` | **Current best solution (54 gates)** |
 | `fp4_multiplier.py` | FP4 encoding, truth tables, `verify_circuit()` |
-| `output_cone_analysis.py` | Dependency cone and gate sharing analysis for the 54-gate circuit |
+| `output_cone_analysis.py` | Dependency cone and gate sharing analysis |
+| `SOLVE_LOG.md` | Detailed log of the LLM-assisted optimization process |
+| `take-home-spec.pdf` | Original problem specification |
 
 ## Running
 
