@@ -62,6 +62,51 @@ See [`SOLVE_LOG.md`](SOLVE_LOG.md) for the full narrative of the LLM-assisted so
 
 See [`output_cone_analysis.py`](output_cone_analysis.py) for full analysis.
 
+### Symmetry Analysis
+
+Since `a * b = b * a`, swapping inputs `(a3,a2,a1,a0) ↔ (b3,b2,b1,b0)` must preserve all outputs. Analysis reveals the circuit already exploits this near-perfectly:
+
+- **48 of 54 gates are symmetric** -- their truth tables are invariant under input swap
+- **All 9 outputs are symmetric** (as required by commutativity)
+- The 6 asymmetric gates form **3 matched swap-equivalent pairs**: `(b2|b1) ↔ (a1|a2)`, `(b0^(b2|b1)) ↔ ((a1|a2)^a0)`, and their downstream ORs
+- Sorting inputs to canonicalize the pairs would cost ~14 gates but only save 3, yielding a net loss
+
+The circuit's architecture is the natural symmetric decomposition: compute 3 "one-sided" functions per operand, then combine symmetrically. There is no remaining symmetry to exploit.
+
+### Two Independent Circuits Converge
+
+Two SA runs (703 and 700) independently found 54-gate circuits from different seeds and trajectories. Comparing them:
+
+- **47 of 54 gates compute identical Boolean functions** (87% functional overlap)
+- Only 7 intermediate functions differ between the circuits -- different "bridge" gates connecting the same 47 shared functions
+- Gate mix: 703 uses 8 OR + 26 XOR; 700 uses 9 OR + 25 XOR (1 gate swapped)
+- Critical path: 703 has depth 16; 700 has depth 17 (703 is slightly faster)
+- Both have identical symmetry structure (48 symmetric + 6 asymmetric gates)
+
+This convergence from independent trajectories strongly suggests 54 gates lies in a deep, possibly unique basin of the optimization landscape.
+
+### Evidence of Local Optimality
+
+- **SAT peephole windows 4-8**: exhaustive search, all UNSAT (no k→k-1 replacement exists for any connected subgraph up to size 8)
+- **2 billion SA evaluations** from 54-gate seed (4 workers × 500M steps): stuck at 54
+- **Symmetry exploitation**: already near-perfect, no savings available
+- **Dual convergence**: two independent SA trajectories share 87% of their computation
+
+The gap between the proven lower bound (~14-20 multi-output) and 54 remains open. Closing it would require either a fundamentally different circuit topology or a SAT proof that 53 gates is impossible.
+
+### Mathematical Structure
+
+Every MxFP4 magnitude decomposes as `base × 2^shift` where `base ∈ {0, 1, 3}`. This reduces FP4 multiplication to:
+
+1. **Base extraction** (2 gates per operand): `is_three = m0 & (m1 | m2)`
+2. **Base multiply** (~4 gates): `{0,1,3} × {0,1,3} → {0,1,3,9}`
+3. **Shift computation** (~6 gates): add two 2-bit shift values
+4. **Barrel shift** (~15-20 gates): shift base product by variable amount (the bottleneck)
+5. **Sign + conditional negate** (~12 gates): `a3 XOR b3`, then two's complement
+6. **Zero detection** (~2 gates): mask output when either operand is zero
+
+The theoretical minimum from this decomposition is ~45-49 gates. The barrel shifter dominates cost because it multiplexes a 4-bit value into 8 possible positions. Our SA-found circuit likely interleaves these sub-computations, sharing gates across steps in ways a clean decomposition cannot.
+
 ## Files
 
 | File | Description |
